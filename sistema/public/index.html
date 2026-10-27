@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-br"><head><meta charset="utf-8"><title>Barbearia</title>
+<style>
+body{font-family:sans-serif;max-width:900px;margin:20px auto;padding:0 10px}
+nav button,form button{margin:2px;padding:6px 10px}input,select{margin:2px;padding:5px}
+table{border-collapse:collapse;width:100%;margin-top:10px}td,th{border:1px solid #ccc;padding:5px}
+.erro{color:red}.hide{display:none}
+</style></head><body>
+
+<!-- LOGIN -->
+<div id="login">
+  <h2>Barbearia - Login</h2>
+  <input id="email" placeholder="E-mail"><br>
+  <input id="senha" type="password" placeholder="Senha"><br>
+  <button onclick="entrar()">Entrar</button>
+  <p id="msg" class="erro"></p>
+</div>
+
+<!-- PAINEL -->
+<div id="app" class="hide">
+  <h2>Olá, <span id="usuario"></span>
+    <button onclick="sair()" style="float:right">Sair (logout)</button></h2>
+  <nav>
+    <button onclick="ir('clientes')">Clientes</button>
+    <button onclick="ir('barbeiros')">Barbeiros/Serviços</button>
+    <button onclick="ir('agenda')">Agendamentos</button>
+  </nav>
+  <p id="erro" class="erro"></p>
+
+  <!-- CLIENTES -->
+  <section id="clientes" class="hide">
+    <h3>Clientes</h3>
+    <form onsubmit="buscar(event)"><input id="busca" placeholder="Buscar nome/telefone"><button>Buscar</button></form>
+    <form onsubmit="salvar(event,'clientes',['cNome','cCpf','cTel'],['nome','cpf','telefone'])">
+      <input id="cNome" placeholder="Nome" required><input id="cCpf" placeholder="CPF" required>
+      <input id="cTel" placeholder="Telefone"><button>Cadastrar</button></form>
+    <table id="tClientes"></table>
+  </section>
+
+  <!-- BARBEIROS / SERVIÇOS -->
+  <section id="barbeiros" class="hide">
+    <h3>Barbeiros</h3>
+    <form onsubmit="salvar(event,'barbeiros',['bNome','bCpf','bTel'],['nome','cpf','telefone'])">
+      <input id="bNome" placeholder="Nome" required><input id="bCpf" placeholder="CPF" required>
+      <input id="bTel" placeholder="Telefone"><button>Cadastrar</button></form>
+    <table id="tBarbeiros"></table>
+    <h3>Serviços</h3>
+    <form onsubmit="salvar(event,'servicos',['sNome','sPreco','sBarb'],['nome','preco','barbeiro_id'])">
+      <input id="sNome" placeholder="Serviço" required><input id="sPreco" type="number" step="0.01" placeholder="Preço" required>
+      <select id="sBarb" required></select><button>Cadastrar</button></form>
+    <table id="tServicos"></table>
+  </section>
+
+  <!-- AGENDAMENTOS -->
+  <section id="agenda" class="hide">
+    <h3>Agendamentos</h3>
+    <form onsubmit="salvar(event,'agendamentos',['aCli','aServ','aData','aHora'],['cliente_id','servico_id','data','hora'])">
+      <select id="aCli" required></select><select id="aServ" required></select>
+      <input id="aData" type="date" required><input id="aHora" type="time" required><button>Agendar</button></form>
+    <table id="tAgenda"></table>
+  </section>
+</div>
+
+<script>
+let token = localStorage.token;
+const $ = id => document.getElementById(id);
+
+async function api(url, metodo = 'GET', corpo) {
+  const r = await fetch('/api/' + url, { method: metodo,
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: corpo ? JSON.stringify(corpo) : undefined });
+  const d = await r.json();
+  if (r.status === 401 && token) return sair();
+  if (!r.ok) { $('erro').textContent = d.erro; throw d; }
+  $('erro').textContent = ''; return d;
+}
+
+async function entrar() {
+  const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: $('email').value, senha: $('senha').value }) });
+  const d = await r.json();
+  if (!r.ok) return $('msg').textContent = d.erro;
+  localStorage.token = token = d.token; localStorage.nome = d.nome; iniciar();
+}
+function sair() { localStorage.clear(); location.reload(); }
+function iniciar() {
+  if (!token) return;
+  $('login').classList.add('hide'); $('app').classList.remove('hide');
+  $('usuario').textContent = localStorage.nome; ir('agenda');
+}
+function ir(s) {
+  ['clientes', 'barbeiros', 'agenda'].forEach(x => $(x).classList.toggle('hide', x != s));
+  ({ clientes: listarClientes, barbeiros: listarBarbeiros, agenda: listarAgenda })[s]();
+}
+const tabela = (id, cab, linhas) => $(id).innerHTML =
+  '<tr>' + cab.map(c => `<th>${c}</th>`).join('') + '</tr>' +
+  linhas.map(l => '<tr>' + l.map(c => `<td>${c}</td>`).join('') + '</tr>').join('');
+
+async function salvar(e, rota, ids, campos) {
+  e.preventDefault(); const o = {};
+  ids.forEach((id, i) => o[campos[i]] = $(id).value);
+  try { await api(rota, 'POST', o); e.target.reset(); ir({ clientes: 'clientes', servicos: 'barbeiros', barbeiros: 'barbeiros', agendamentos: 'agenda' }[rota]); } catch {}
+}
+function buscar(e) { e.preventDefault(); listarClientes(); }
+async function listarClientes() {
+  const d = await api('clientes?busca=' + encodeURIComponent($('busca').value));
+  tabela('tClientes', ['Nome', 'CPF', 'Telefone'], d.map(c => [c.nome, c.cpf, c.telefone]));
+}
+async function listarBarbeiros() {
+  const b = await api('barbeiros'), s = await api('servicos');
+  tabela('tBarbeiros', ['Nome', 'CPF', 'Telefone'], b.map(x => [x.nome, x.cpf, x.telefone]));
+  tabela('tServicos', ['Serviço', 'Preço', 'Barbeiro'], s.map(x => [x.nome, 'R$ ' + x.preco, x.barbeiro]));
+  $('sBarb').innerHTML = '<option value="">Barbeiro...</option>' + b.map(x => `<option value="${x.id}">${x.nome}</option>`).join('');
+}
+async function listarAgenda() {
+  const c = await api('clientes'), s = await api('servicos'), a = await api('agendamentos');
+  $('aCli').innerHTML = c.map(x => `<option value="${x.id}">${x.nome}</option>`).join('');
+  $('aServ').innerHTML = s.map(x => `<option value="${x.id}">${x.nome} (${x.barbeiro})</option>`).join('');
+  tabela('tAgenda', ['Data', 'Hora', 'Cliente', 'Telefone', 'Serviço', 'Preço', 'Barbeiro'],
+    a.map(x => [x.data, x.hora, x.cliente, x.telefone, x.servico, 'R$ ' + x.preco, x.barbeiro]));
+}
+iniciar();
+</script></body></html>
